@@ -12,6 +12,7 @@ build:
 app: build
 	mkdir -p "$(MACOS_DIR)" "$(RESOURCES_DIR)"
 	cp ".build/release/$(APP_NAME)" "$(MACOS_DIR)/$(APP_NAME)"
+	cp "Resources/AppIcon.icns" "$(RESOURCES_DIR)/AppIcon.icns"
 	@printf '%s\n' \
 		'<?xml version="1.0" encoding="UTF-8"?>' \
 		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
@@ -19,6 +20,8 @@ app: build
 		'<dict>' \
 		'    <key>CFBundleExecutable</key>' \
 		'    <string>Anchor</string>' \
+		'    <key>CFBundleIconFile</key>' \
+		'    <string>AppIcon</string>' \
 		'    <key>CFBundleIdentifier</key>' \
 		'    <string>com.lucianmarin.Anchor</string>' \
 		'    <key>CFBundleName</key>' \
@@ -37,6 +40,7 @@ app: build
 		'    <true/>' \
 		'</dict>' \
 		'</plist>' > "$(CONTENTS_DIR)/Info.plist"
+	touch "$(BUNDLE_DIR)"
 	codesign --force --deep --sign - "$(BUNDLE_DIR)"
 
 run: app
