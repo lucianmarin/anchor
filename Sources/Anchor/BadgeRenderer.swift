@@ -46,6 +46,21 @@ public enum BadgeRenderer {
         return image
     }
 
+    /// Renders an 18x18 app icon with the given opacity (e.g. for the faded previous app icon).
+    public static func makeFadedMenuBarIcon(appIcon: NSImage, alpha: CGFloat = 0.5) -> NSImage {
+        let image = NSImage(size: iconSize, flipped: false) { rect in
+            appIcon.draw(
+                in: rect,
+                from: .zero,
+                operation: .sourceOver,
+                fraction: min(max(alpha, 0.0), 1.0)
+            )
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
     /// Renders the menu bar status item image: the active app icon and, if total notifications > 0,
     /// the notification counter pill in the exact same style as the app menu items.
     public static func makeMenuBarImage(appIcon: NSImage, notificationCount: Int) -> NSImage {

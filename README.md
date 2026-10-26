@@ -8,11 +8,11 @@ Anchor brings the macOS Dock to the menu bar. It displays the currently active a
 
 ## Specifications
 
-### 1. Menu Bar Status Item
+### 1. Menu Bar Status Items
 - Runs as a menu bar-only application (`LSUIElement` / `.accessory` activation policy, no Dock icon of its own).
-- Displays the icon of the currently active (frontmost) application in the macOS status bar (`18x18` pt).
-- Displays a **total notifications counter** next to/overlaid with the menu bar icon showing the sum of notification badges across all Dock apps (hidden when total count is `0`).
-- Listens to `NSWorkspace.didActivateApplicationNotification` and polls/observes Dock badge updates to keep the active icon and total counter in sync.
+- Displays the previously opened application's icon on the left as a faded (`50%` opacity), clickable status item that switches back to or reopens that application when clicked.
+- Displays the icon of the currently active (frontmost) application (`18x18` pt) with the **total notifications counter** pill on the right (hidden when total count is `0`). Only the current running app icon opens the Dock menu.
+- Listens to `NSWorkspace.didActivateApplicationNotification` and polls/observes Dock badge updates to keep the previous app icon, active icon, and total counter in sync.
 
 ### 2. Dock Applications List
 - Clicking the menu bar icon opens a menu listing all Dock applications:
@@ -33,6 +33,7 @@ Anchor brings the macOS Dock to the menu bar. It displays the currently active a
 
 ### 4. Application Controls
 - Menu footer (at the end of the list, separated by a divider):
+  - **Previous App** (toggleable menu item enabled by default; when unchecked, hides the faded previous app icon on the left side of the menu bar)
   - **Disable Dock** (toggleable menu item reflecting current `autohide-delay` state)
   - **Quit Anchor** (`Cmd+Q` to terminate Anchor)
 

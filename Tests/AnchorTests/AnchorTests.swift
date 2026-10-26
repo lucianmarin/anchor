@@ -69,5 +69,74 @@ final class AnchorTests: XCTestCase {
 
         let attrTitle = BadgeRenderer.makeMenuItemAttributedTitle(appName: "Messages", badgeText: "3")
         XCTAssertTrue(attrTitle.string.hasPrefix("Messages"))
+
+        let fadedIcon = BadgeRenderer.makeFadedMenuBarIcon(appIcon: dummyIcon)
+        XCTAssertEqual(fadedIcon.size, NSSize(width: 18, height: 18))
+    }
+
+    func testActiveAppHistoryTrackerTracksPreviousAndCurrentApps() {
+        let icon = NSImage(size: NSSize(width: 18, height: 18))
+        let safari = TrackedAppInfo(
+            name: "Safari",
+            bundleIdentifier: "com.apple.Safari",
+            url: URL(fileURLWithPath: "/Applications/Safari.app"),
+            icon: icon
+        )
+        let terminal = TrackedAppInfo(
+            name: "Terminal",
+            bundleIdentifier: "com.apple.Terminal",
+            url: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"),
+            icon: icon
+        )
+        let mail = TrackedAppInfo(
+            name: "Mail",
+            bundleIdentifier: "com.apple.mail",
+            url: URL(fileURLWithPath: "/System/Applications/Mail.app"),
+            icon: icon
+        )
+
+        var tracker = ActiveAppHistoryTracker()
+        XCTAssertNil(tracker.currentApp)
+        XCTAssertNil(tracker.previousApp)
+
+        XCTAssertTrue(tracker.recordActivation(safari))
+        XCTAssertEqual(tracker.currentApp, safari)
+        XCTAssertNil(tracker.previousApp)
+
+        // Re-activating the same app should not overwrite previousApp
+        XCTAssertFalse(tracker.recordActivation(safari))
+        XCTAssertEqual(tracker.currentApp, safari)
+        XCTAssertNil(tracker.previousApp)
+
+        // Switching to Terminal sets Safari as previousApp
+        XCTAssertTrue(tracker.recordActivation(terminal))
+        XCTAssertEqual(tracker.currentApp, terminal)
+        XCTAssertEqual(tracker.previousApp, safari)
+
+        // Repeating Terminal keeps Safari as previousApp
+        XCTAssertFalse(tracker.recordActivation(terminal))
+        XCTAssertEqual(tracker.currentApp, terminal)
+        XCTAssertEqual(tracker.previousApp, safari)
+
+        // Switching to Mail sets Terminal as previousApp
+        XCTAssertTrue(tracker.recordActivation(mail))
+        XCTAssertEqual(tracker.currentApp, mail)
+        XCTAssertEqual(tracker.previousApp, terminal)
+    }
+
+    func testPreviousAppPreferenceDefaultsToTrueAndPersistsToggle() {
+        let suiteName = "com.lucianmarin.AnchorTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(DockManager.shared.isPreviousAppEnabled(defaults: defaults))
+
+        DockManager.shared.setPreviousAppEnabled(false, defaults: defaults)
+        XCTAssertFalse(DockManager.shared.isPreviousAppEnabled(defaults: defaults))
+
+        DockManager.shared.setPreviousAppEnabled(true, defaults: defaults)
+        XCTAssertTrue(DockManager.shared.isPreviousAppEnabled(defaults: defaults))
     }
 }

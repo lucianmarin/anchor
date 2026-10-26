@@ -58,6 +58,7 @@ public final class DockManager {
     private static let finderBundleId = "com.apple.finder"
     private static let finderURL = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
     private static let disabledDockDelay: Float = 3600.0
+    public static let showPreviousAppDefaultsKey = "showPreviousApp"
 
     // Private LaunchServices functions to read Dock badge counts in-process without requiring Accessibility permissions.
     private typealias LSASNCreateWithPidFn = @convention(c) (CFAllocator?, pid_t) -> AnyObject?
@@ -352,19 +353,36 @@ public final class DockManager {
     // MARK: - Launching & Activating Apps
 
     public func openOrActivate(_ item: DockAppItem) {
-        if let bundleId = item.bundleIdentifier,
+        openOrActivate(bundleIdentifier: item.bundleIdentifier, url: item.url)
+    }
+
+    public func openOrActivate(bundleIdentifier: String?, url: URL) {
+        if let bundleId = bundleIdentifier,
            let running = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) {
             running.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
             // Also call openApplication so reopened windows (like Finder or minimized apps) unminimize/reopen cleanly
             let config = NSWorkspace.OpenConfiguration()
             config.activates = true
-            NSWorkspace.shared.openApplication(at: item.url, configuration: config, completionHandler: nil)
+            NSWorkspace.shared.openApplication(at: url, configuration: config, completionHandler: nil)
             return
         }
 
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
-        NSWorkspace.shared.openApplication(at: item.url, configuration: config, completionHandler: nil)
+        NSWorkspace.shared.openApplication(at: url, configuration: config, completionHandler: nil)
+    }
+
+    // MARK: - Previous App Preference
+
+    public func isPreviousAppEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: Self.showPreviousAppDefaultsKey) != nil else {
+            return true
+        }
+        return defaults.bool(forKey: Self.showPreviousAppDefaultsKey)
+    }
+
+    public func setPreviousAppEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: Self.showPreviousAppDefaultsKey)
     }
 
     // MARK: - Disable / Enable System Dock
