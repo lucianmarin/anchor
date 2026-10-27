@@ -118,10 +118,36 @@ final class AnchorTests: XCTestCase {
         XCTAssertEqual(tracker.currentApp, terminal)
         XCTAssertEqual(tracker.previousApp, safari)
 
-        // Switching to Mail sets Terminal as previousApp
+        // Switching to Mail sets Terminal as previousApp and keeps Safari in history
         XCTAssertTrue(tracker.recordActivation(mail))
         XCTAssertEqual(tracker.currentApp, mail)
         XCTAssertEqual(tracker.previousApp, terminal)
+        XCTAssertEqual(tracker.previousApps, [terminal, safari])
+    }
+
+    func testActiveAppHistoryTrackerTracksUpToFourPreviousAppsWithDeduplication() {
+        let icon = NSImage(size: NSSize(width: 18, height: 18))
+        let apps = (1...6).map { index in
+            TrackedAppInfo(
+                name: "App\(index)",
+                bundleIdentifier: "com.example.App\(index)",
+                url: URL(fileURLWithPath: "/Applications/App\(index).app"),
+                icon: icon
+            )
+        }
+
+        var tracker = ActiveAppHistoryTracker()
+        for app in apps {
+            XCTAssertTrue(tracker.recordActivation(app))
+        }
+
+        XCTAssertEqual(tracker.currentApp, apps[5])
+        XCTAssertEqual(tracker.previousApps, [apps[4], apps[3], apps[2], apps[1]])
+
+        // Switching back to an app already in previousApps removes it from previousApps and pushes old currentApp to front
+        XCTAssertTrue(tracker.recordActivation(apps[2]))
+        XCTAssertEqual(tracker.currentApp, apps[2])
+        XCTAssertEqual(tracker.previousApps, [apps[5], apps[4], apps[3], apps[1]])
     }
 
     func testPreviousAppPreferenceDefaultsToTrueAndPersistsToggle() {
@@ -132,11 +158,40 @@ final class AnchorTests: XCTestCase {
         }
 
         XCTAssertTrue(DockManager.shared.isPreviousAppEnabled(defaults: defaults))
+        XCTAssertEqual(DockManager.shared.previousAppsCount(defaults: defaults), 1)
 
         DockManager.shared.setPreviousAppEnabled(false, defaults: defaults)
         XCTAssertFalse(DockManager.shared.isPreviousAppEnabled(defaults: defaults))
+        XCTAssertEqual(DockManager.shared.previousAppsCount(defaults: defaults), 0)
 
         DockManager.shared.setPreviousAppEnabled(true, defaults: defaults)
         XCTAssertTrue(DockManager.shared.isPreviousAppEnabled(defaults: defaults))
+        XCTAssertEqual(DockManager.shared.previousAppsCount(defaults: defaults), 1)
+    }
+
+    func testPreviousAppsCountPreferenceSupportsZeroToFourAndSpelledNames() {
+        let suiteName = "com.lucianmarin.AnchorTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertEqual(
+            DockManager.previousAppsCountNames,
+            ["Zero", "One", "Two", "Three", "Four"]
+        )
+
+        for count in 0...4 {
+            DockManager.shared.setPreviousAppsCount(count, defaults: defaults)
+            XCTAssertEqual(DockManager.shared.previousAppsCount(defaults: defaults), count)
+            XCTAssertEqual(DockManager.shared.isPreviousAppEnabled(defaults: defaults), count > 0)
+        }
+
+        // Clamping out-of-range values
+        DockManager.shared.setPreviousAppsCount(-2, defaults: defaults)
+        XCTAssertEqual(DockManager.shared.previousAppsCount(defaults: defaults), 0)
+
+        DockManager.shared.setPreviousAppsCount(10, defaults: defaults)
+        XCTAssertEqual(DockManager.shared.previousAppsCount(defaults: defaults), 4)
     }
 }

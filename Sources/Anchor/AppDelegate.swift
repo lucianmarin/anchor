@@ -28,16 +28,36 @@ public struct TrackedAppInfo: Equatable {
 }
 
 public struct ActiveAppHistoryTracker {
-    public private(set) var currentApp: TrackedAppInfo?
-    public private(set) var previousApp: TrackedAppInfo?
+    public static let defaultMaxPreviousApps = 4
 
-    public init(currentApp: TrackedAppInfo? = nil, previousApp: TrackedAppInfo? = nil) {
-        self.currentApp = currentApp
-        self.previousApp = previousApp
+    public private(set) var currentApp: TrackedAppInfo?
+    public private(set) var previousApps: [TrackedAppInfo]
+    public let maxPreviousApps: Int
+
+    public var previousApp: TrackedAppInfo? {
+        previousApps.first
     }
 
-    /// Records the currently active app and updates `previousApp` when switching to a different app.
-    /// Returns `true` if either `currentApp` or `previousApp` changed.
+    public init(
+        currentApp: TrackedAppInfo? = nil,
+        previousApps: [TrackedAppInfo] = [],
+        maxPreviousApps: Int = Self.defaultMaxPreviousApps
+    ) {
+        self.currentApp = currentApp
+        self.maxPreviousApps = max(0, maxPreviousApps)
+        self.previousApps = Array(previousApps.prefix(self.maxPreviousApps))
+    }
+
+    public init(currentApp: TrackedAppInfo?, previousApp: TrackedAppInfo?) {
+        self.init(
+            currentApp: currentApp,
+            previousApps: previousApp.map { [$0] } ?? []
+        )
+    }
+
+    /// Records the currently active app and updates `previousApps` (most recent first, deduplicated)
+    /// when switching to a different app.
+    /// Returns `true` if either `currentApp` or `previousApps` changed.
     @discardableResult
     public mutating func recordActivation(_ app: TrackedAppInfo) -> Bool {
         guard let existingCurrent = currentApp else {
@@ -51,7 +71,14 @@ public struct ActiveAppHistoryTracker {
             }
             return false
         }
-        previousApp = existingCurrent
+        var updatedPrevious = previousApps.filter {
+            !$0.isSameApplication(as: app) && !$0.isSameApplication(as: existingCurrent)
+        }
+        updatedPrevious.insert(existingCurrent, at: 0)
+        if updatedPrevious.count > maxPreviousApps {
+            updatedPrevious = Array(updatedPrevious.prefix(maxPreviousApps))
+        }
+        previousApps = updatedPrevious
         currentApp = app
         return true
     }
@@ -60,7 +87,7 @@ public struct ActiveAppHistoryTracker {
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
-    private var previousAppStatusItem: NSStatusItem?
+    private var previousAppStatusItems: [NSStatusItem] = []
     private let statusMenu = NSMenu()
     private var refreshTimer: Timer?
     private var currentApps: [DockAppItem] = []
@@ -86,9 +113,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
     public func applicationWillTerminate(_ notification: Notification) {
         refreshTimer?.invalidate()
-        if let previousAppStatusItem {
-            NSStatusBar.system.removeStatusItem(previousAppStatusItem)
+        for item in previousAppStatusItems {
+            NSStatusBar.system.removeStatusItem(item)
         }
+        previousAppStatusItems.removeAll()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
@@ -180,32 +208,30 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     }
 
     private func updatePreviousAppStatusItem() {
-        guard DockManager.shared.isPreviousAppEnabled(),
-              let previousApp = appHistory.previousApp else {
-            if let item = previousAppStatusItem {
-                NSStatusBar.system.removeStatusItem(item)
-                previousAppStatusItem = nil
-            }
-            return
+        let configuredCount = DockManager.shared.previousAppsCount()
+        let visibleApps = Array(appHistory.previousApps.prefix(configuredCount))
+
+        while previousAppStatusItems.count > visibleApps.count {
+            let removed = previousAppStatusItems.removeLast()
+            NSStatusBar.system.removeStatusItem(removed)
         }
 
-        let item: NSStatusItem
-        if let existing = previousAppStatusItem {
-            item = existing
-        } else {
+        while previousAppStatusItems.count < visibleApps.count {
             let newItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             newItem.menu = nil
             if let button = newItem.button {
                 button.target = self
                 button.action = #selector(activatePreviousApp(_:))
             }
-            previousAppStatusItem = newItem
-            item = newItem
+            previousAppStatusItems.append(newItem)
         }
 
-        if let button = item.button {
-            button.image = BadgeRenderer.makeFadedMenuBarIcon(appIcon: previousApp.icon)
-            button.toolTip = "Switch to \(previousApp.name)"
+        for (index, app) in visibleApps.enumerated() {
+            if let button = previousAppStatusItems[index].button {
+                button.tag = index
+                button.image = BadgeRenderer.makeFadedMenuBarIcon(appIcon: app.icon)
+                button.toolTip = "Switch to \(app.name)"
+            }
         }
     }
 
@@ -238,14 +264,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
         menu.addItem(.separator())
 
-        let previousAppItem = NSMenuItem(
-            title: "Previous App",
-            action: #selector(togglePreviousApp(_:)),
+        let previousAppsItem = NSMenuItem(
+            title: "Previous Apps",
+            action: nil,
             keyEquivalent: ""
         )
-        previousAppItem.target = self
-        previousAppItem.state = DockManager.shared.isPreviousAppEnabled() ? .on : .off
-        menu.addItem(previousAppItem)
+        let previousAppsSubmenu = NSMenu(title: "Previous Apps")
+        let selectedPreviousCount = DockManager.shared.previousAppsCount()
+        for (count, label) in DockManager.previousAppsCountNames.enumerated() {
+            let optionItem = NSMenuItem(
+                title: label,
+                action: #selector(selectPreviousAppsCount(_:)),
+                keyEquivalent: ""
+            )
+            optionItem.target = self
+            optionItem.tag = count
+            optionItem.state = (count == selectedPreviousCount) ? .on : .off
+            previousAppsSubmenu.addItem(optionItem)
+        }
+        previousAppsItem.submenu = previousAppsSubmenu
+        menu.addItem(previousAppsItem)
 
         let disableDockItem = NSMenuItem(
             title: "Disable Dock",
@@ -283,11 +321,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
     // MARK: - Actions
 
-    @objc private func activatePreviousApp(_ sender: Any?) {
-        guard let previousApp = appHistory.previousApp else { return }
+    @objc private func activatePreviousApp(_ sender: NSStatusBarButton) {
+        let index = sender.tag
+        guard appHistory.previousApps.indices.contains(index) else { return }
+        let targetApp = appHistory.previousApps[index]
         DockManager.shared.openOrActivate(
-            bundleIdentifier: previousApp.bundleIdentifier,
-            url: previousApp.url
+            bundleIdentifier: targetApp.bundleIdentifier,
+            url: targetApp.url
         )
     }
 
@@ -297,9 +337,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         DockManager.shared.openOrActivate(currentApps[index])
     }
 
-    @objc private func togglePreviousApp(_ sender: NSMenuItem) {
-        let newState = !DockManager.shared.isPreviousAppEnabled()
-        DockManager.shared.setPreviousAppEnabled(newState)
+    @objc private func selectPreviousAppsCount(_ sender: NSMenuItem) {
+        DockManager.shared.setPreviousAppsCount(sender.tag)
         updatePreviousAppStatusItem()
     }
 

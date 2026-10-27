@@ -59,6 +59,10 @@ public final class DockManager {
     private static let finderURL = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
     private static let disabledDockDelay: Float = 3600.0
     public static let showPreviousAppDefaultsKey = "showPreviousApp"
+    public static let previousAppsCountDefaultsKey = "previousAppsCount"
+    public static let maxPreviousAppsCount = 4
+    public static let defaultPreviousAppsCount = 1
+    public static let previousAppsCountNames = ["Zero", "One", "Two", "Three", "Four"]
 
     // Private LaunchServices functions to read Dock badge counts in-process without requiring Accessibility permissions.
     private typealias LSASNCreateWithPidFn = @convention(c) (CFAllocator?, pid_t) -> AnyObject?
@@ -372,17 +376,30 @@ public final class DockManager {
         NSWorkspace.shared.openApplication(at: url, configuration: config, completionHandler: nil)
     }
 
-    // MARK: - Previous App Preference
+    // MARK: - Previous Apps Preference
+
+    public func previousAppsCount(defaults: UserDefaults = .standard) -> Int {
+        if let rawValue = defaults.object(forKey: Self.previousAppsCountDefaultsKey) as? NSNumber {
+            return min(max(rawValue.intValue, 0), Self.maxPreviousAppsCount)
+        }
+        if defaults.object(forKey: Self.showPreviousAppDefaultsKey) != nil {
+            return defaults.bool(forKey: Self.showPreviousAppDefaultsKey) ? Self.defaultPreviousAppsCount : 0
+        }
+        return Self.defaultPreviousAppsCount
+    }
+
+    public func setPreviousAppsCount(_ count: Int, defaults: UserDefaults = .standard) {
+        let clamped = min(max(count, 0), Self.maxPreviousAppsCount)
+        defaults.set(clamped, forKey: Self.previousAppsCountDefaultsKey)
+        defaults.set(clamped > 0, forKey: Self.showPreviousAppDefaultsKey)
+    }
 
     public func isPreviousAppEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: Self.showPreviousAppDefaultsKey) != nil else {
-            return true
-        }
-        return defaults.bool(forKey: Self.showPreviousAppDefaultsKey)
+        previousAppsCount(defaults: defaults) > 0
     }
 
     public func setPreviousAppEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
-        defaults.set(enabled, forKey: Self.showPreviousAppDefaultsKey)
+        setPreviousAppsCount(enabled ? Self.defaultPreviousAppsCount : 0, defaults: defaults)
     }
 
     // MARK: - Disable / Enable System Dock
