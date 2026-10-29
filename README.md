@@ -1,5 +1,7 @@
 # Anchor
 
+![screenshot](screenshot.jpg)
+
 Menu bar dock for macOS.
 
 ## Overview
